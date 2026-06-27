@@ -1,0 +1,31 @@
+# Netlify deploy config for the e-Way Bill -> JSON site.
+# Static frontend lives in public/, the API is in netlify/functions/.
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+  # pdfkit/fontkit ship runtime data files (.afm fonts) and bwip-js/ollama are
+  # heavy — keep them as real node_modules instead of inlining them with esbuild.
+  external_node_modules = ["pdfkit", "fontkit", "bwip-js", "ollama"]
+
+# Pretty paths -> functions, so the frontend can call /process and /parse_text.
+[[redirects]]
+  from = "/process"
+  to = "/.netlify/functions/process"
+  status = 200
+
+[[redirects]]
+  from = "/parse_text"
+  to = "/.netlify/functions/parse_text"
+  status = 200
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/health"
+  status = 200
