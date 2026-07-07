@@ -11,6 +11,7 @@ import {
   OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL,
   OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL,
 } from "./config";
+import { cleanupImage } from "./imageCleanup";
 
 const CLOUD_PROVIDERS = ["groq", "openai", "openrouter"];
 
@@ -204,11 +205,15 @@ function validate(data: any): string[] {
   return warnings;
 }
 
-function finish(data: any): any {
+function finish(data: any, cleanup?: { cleaned: boolean; reason: string }): any {
   if (!data.barcode_value) data.barcode_value = data.eway_bill_no || "";
   const normalized = normalize(data);
   const warnings = validate(normalized);
   if (warnings.length) normalized._warnings = warnings;
+  if (cleanup) {
+    normalized._image_cleaned = cleanup.cleaned;
+    normalized._image_cleanup_reason = cleanup.reason;
+  }
   return normalized;
 }
 
@@ -267,18 +272,32 @@ async function ollamaChat(messages: any[]): Promise<string> {
 
 // ---------- public API ----------
 export async function extractFields(imageBase64: string, mime = "image/jpeg"): Promise<any> {
+  let cleanedBase64 = imageBase64;
+  let cleanedMime = mime;
+  let cleanupInfo = { cleaned: false, reason: "cleanup step failed — used the original upload" };
+  try {
+    const result = await cleanupImage(Buffer.from(imageBase64, "base64"));
+    cleanedBase64 = result.buffer.toString("base64");
+    cleanedMime = result.mime;
+    cleanupInfo = { cleaned: result.cleaned, reason: result.reason };
+  } catch (err: any) {
+    // Cleanup is a best-effort enhancement, never a hard requirement —
+    // fall back to the original upload rather than failing extraction.
+    cleanupInfo = { cleaned: false, reason: `cleanup step threw: ${err?.message || err}` };
+  }
+
   if (CLOUD_PROVIDERS.includes(PROVIDER)) {
     const content = [
       { type: "text", text: IMAGE_PROMPT },
-      { type: "image_url", image_url: { url: `data:${mime};base64,${imageBase64}` } },
+      { type: "image_url", image_url: { url: `data:${cleanedMime};base64,${cleanedBase64}` } },
     ];
-    return finish(parseJson(await cloudChat(content)));
+    return finish(parseJson(await cloudChat(content)), cleanupInfo);
   }
   // ollama
   const content = await ollamaChat([
-    { role: "user", content: IMAGE_PROMPT, images: [imageBase64] },
+    { role: "user", content: IMAGE_PROMPT, images: [cleanedBase64] },
   ]);
-  return finish(parseJson(content));
+  return finish(parseJson(content), cleanupInfo);
 }
 
 export async function extractFromText(rawText: string): Promise<any> {
