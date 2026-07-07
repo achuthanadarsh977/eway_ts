@@ -19,6 +19,7 @@ const ollama = new Ollama({ host: OLLAMA_HOST });
 const SCHEMA_HINT = `{
   "document_type": "E-Way Bill",
   "eway_bill_no": "",
+  "eway_bill_status": "",
   "summary": {
     "eway_bill_date": "",
     "generated_by": { "gstin": "", "name": "" },
@@ -26,6 +27,11 @@ const SCHEMA_HINT = `{
     "distance_km": 0,
     "valid_until": "",
     "portal": "1"
+  },
+  "irn_details": {
+    "irn": null,
+    "irn_date": null,
+    "ack_no": null
   },
   "part_a": {
     "supplier": { "gstin": "", "name": "" },
@@ -59,13 +65,30 @@ const SCHEMA_HINT = `{
 const RULES =
   "Rules:\n" +
   "- Output valid JSON only.\n" +
-  "- Transcribe GSTINs, document numbers and numeric values EXACTLY.\n" +
+  "- Transcribe GSTINs, document numbers and numeric values EXACTLY, character by character. " +
+  "If any single character is not clearly legible, output null for that whole field instead of " +
+  "guessing a plausible-looking value — a wrong GSTIN or document number is worse than a missing one.\n" +
   "- Remove spaces inside GSTINs and the EWB number.\n" +
-  "- Double-check the recipient GSTIN (often differs from the supplier only by the " +
-  "2-digit state code and last char).\n" +
+  "- Every GSTIN (generated_by, supplier, recipient, transporter.id) is exactly 15 characters in the " +
+  "shape 99AAAAA9999A9Z9 (2 digits, 5 letters, 4 digits, 1 letter, 1 alphanumeric, literal 'Z', 1 " +
+  "alphanumeric). Re-read the image if your transcription doesn't have exactly 15 characters.\n" +
+  "- Double-check the recipient GSTIN specifically: it often differs from the supplier only by the " +
+  "2-digit state code and last char, so do not just copy the supplier's GSTIN — read the recipient's " +
+  "row independently.\n" +
+  "- transporter.id and transporter.name are SEPARATE fields (often shown as 'ID & NAME' or 'ID - NAME' " +
+  "on the form). Split them; never concatenate transporter id and name into one string.\n" +
+  "- document_no is the invoice/challan number printed next to the 'Document No' label — it is " +
+  "alphanumeric and is NEVER a date. document_date is the date next to 'Document Date'. If you cannot " +
+  "find a document number distinct from the document date, set document_no to null rather than " +
+  "repeating the date or a nearby number from another field.\n" +
+  "- transaction_type must be exactly what is printed next to the 'Transaction Type' label — it is one " +
+  "of: Regular, Bill To - Ship To, Bill From - Dispatch From, Combination, or a stock-transfer variant. " +
+  "It is a DIFFERENT field from 'Reason for Transportation' (which is often 'Outward Supply'/'Outward - " +
+  "Supply') — do not copy the reason-for-transportation value into transaction_type.\n" +
   "- value_of_goods and distance_km must be numbers (no commas, no currency symbol).\n" +
   "- Keep company names UPPERCASE.\n" +
-  "- Use null for empty '-' fields.\n" +
+  "- Use null for empty '-' fields, and for irn/irn_date/ack_no when there is no 'IRN Details' section " +
+  "on the document at all.\n" +
   "- barcode_value = the e-Way Bill number.\n" +
   "- Dates exactly as shown (DD/MM/YYYY, include time if present).";
 
@@ -101,6 +124,9 @@ function normalize(data: any): any {
   for (const r of data.part_b || []) {
     if (r && r.entered_by) r.entered_by = nospace(r.entered_by);
   }
+  const irn = data.irn_details || {};
+  if (irn.irn) irn.irn = nospace(irn.irn).toLowerCase();
+  if (irn.ack_no) irn.ack_no = nospace(irn.ack_no);
   return data;
 }
 
@@ -119,6 +145,13 @@ const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 const EWB_RE = /^[0-9]{12}$/;
 const DATE_LIKE_RE = /^[0-9]{2}\/[0-9]{2}\/[0-9]{4}/;
 const VEHICLE_RE = /^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$/;
+const KNOWN_TRANSACTION_TYPES = [
+  "regular",
+  "bill to - ship to",
+  "bill from - dispatch from",
+  "combination of 2 and 3",
+  "combination",
+];
 
 // Shape-only sanity checks on the model's output. These catch the class of
 // failure where a vision model hallucinates a plausible-looking value on a
@@ -152,6 +185,12 @@ function validate(data: any): string[] {
   }
   if (a.document_no && DATE_LIKE_RE.test(a.document_no)) {
     warnings.push(`part_a.document_no "${a.document_no}" looks like a date, not a document number.`);
+  }
+  if (a.transaction_type && !KNOWN_TRANSACTION_TYPES.includes(String(a.transaction_type).trim().toLowerCase())) {
+    warnings.push(
+      `part_a.transaction_type "${a.transaction_type}" is not one of the standard EWB transaction types ` +
+        `— check it wasn't copied from reason_for_transportation.`
+    );
   }
   (data.part_b || []).forEach((r: any, i: number) => {
     const vNo = String(r?.vehicle_trans_doc_no_and_dt || "")

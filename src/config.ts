@@ -14,6 +14,11 @@ export const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma3:4b";
 
 // --- Groq (cloud, fast, free tier) ---
+// llama-4-scout is currently the only vision-capable model this account can
+// reach on Groq (llama-4-maverick 404s: "model does not exist or you do not
+// have access to it"). Accuracy on hard photos therefore has to come from
+// the schema/prompt tightening in llmExtract.ts and the shape validation,
+// not from a bigger Groq model — see README for the tradeoff.
 export const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 export const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
 export const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
