@@ -115,9 +115,62 @@ function parseJson(raw: string): any {
   return JSON.parse(raw);
 }
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
+const EWB_RE = /^[0-9]{12}$/;
+const DATE_LIKE_RE = /^[0-9]{2}\/[0-9]{2}\/[0-9]{4}/;
+const VEHICLE_RE = /^[A-Z]{2}[0-9]{1,2}[A-Z]{0,3}[0-9]{4}$/;
+
+// Shape-only sanity checks on the model's output. These catch the class of
+// failure where a vision model hallucinates a plausible-looking value on a
+// noisy/skewed photo (wrong-length GSTIN, a date landing in document_no,
+// a malformed vehicle plate) instead of admitting it couldn't read the
+// field. Never corrects or drops data — just flags it so a caller (Zoho,
+// a human reviewer) knows a field needs re-checking against the source image.
+function validate(data: any): string[] {
+  const warnings: string[] = [];
+  const s = data.summary || {};
+  const a = data.part_a || {};
+  const gen = s.generated_by || {};
+  const sup = a.supplier || {};
+  const rec = a.recipient || {};
+  const tr = a.transporter || {};
+
+  if (data.eway_bill_no && !EWB_RE.test(data.eway_bill_no)) {
+    warnings.push(`eway_bill_no "${data.eway_bill_no}" is not 12 digits.`);
+  }
+  if (gen.gstin && !GSTIN_RE.test(gen.gstin)) {
+    warnings.push(`summary.generated_by.gstin "${gen.gstin}" does not match the 15-char GSTIN shape.`);
+  }
+  if (sup.gstin && !GSTIN_RE.test(sup.gstin)) {
+    warnings.push(`part_a.supplier.gstin "${sup.gstin}" does not match the 15-char GSTIN shape.`);
+  }
+  if (rec.gstin && !GSTIN_RE.test(rec.gstin)) {
+    warnings.push(`part_a.recipient.gstin "${rec.gstin}" does not match the 15-char GSTIN shape.`);
+  }
+  if (tr.id && !GSTIN_RE.test(tr.id)) {
+    warnings.push(`part_a.transporter.id "${tr.id}" does not match the 15-char GSTIN shape.`);
+  }
+  if (a.document_no && DATE_LIKE_RE.test(a.document_no)) {
+    warnings.push(`part_a.document_no "${a.document_no}" looks like a date, not a document number.`);
+  }
+  (data.part_b || []).forEach((r: any, i: number) => {
+    const vNo = String(r?.vehicle_trans_doc_no_and_dt || "")
+      .split(/[ &]/)[0]
+      .replace(/-/g, "")
+      .toUpperCase();
+    if (vNo && !VEHICLE_RE.test(vNo)) {
+      warnings.push(`part_b[${i}].vehicle_trans_doc_no_and_dt "${vNo}" does not match the standard vehicle-plate shape.`);
+    }
+  });
+  return warnings;
+}
+
 function finish(data: any): any {
   if (!data.barcode_value) data.barcode_value = data.eway_bill_no || "";
-  return normalize(data);
+  const normalized = normalize(data);
+  const warnings = validate(normalized);
+  if (warnings.length) normalized._warnings = warnings;
+  return normalized;
 }
 
 // ---------- OpenAI-compatible cloud chat (Groq & OpenAI share this format) ----------
