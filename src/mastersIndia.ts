@@ -30,6 +30,44 @@ function vehicleNo(token: any): string {
   return t.trim().replace(/-/g, "").toUpperCase();
 }
 
+// e-Way Bill dates are IST wall-clock time with no offset marker (e.g.
+// "07/07/2026" or "05/07/2026 11:59 PM"). Parse as IST and return the
+// equivalent UTC instant so it compares correctly against Date.now()
+// regardless of the server's local timezone.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function parseEwbDateIST(s: any): Date | null {
+  if (!s) return null;
+  const m = String(s)
+    .trim()
+    .match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*(AM|PM)?)?/i);
+  if (!m) return null;
+  const [, dd, mm, yyyy, hh, min, ampm] = m;
+  // No time on the document means "valid through end of that day".
+  let hour = hh ? parseInt(hh, 10) : 23;
+  const minute = hh ? parseInt(min, 10) : 59;
+  const second = hh ? 0 : 59;
+  if (ampm) {
+    const isPM = ampm.toUpperCase() === "PM";
+    if (isPM && hour !== 12) hour += 12;
+    if (!isPM && hour === 12) hour = 0;
+  }
+  const utcMs =
+    Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10), hour, minute, second) -
+    IST_OFFSET_MS;
+  const date = new Date(utcMs);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+// "ACT" if valid_until is still in the future (or now), "CAN" if it has
+// already passed. Empty string (not a guess) if valid_until is missing
+// or unparseable.
+function computeEwbStatus(validUntil: any): "ACT" | "CAN" | "" {
+  const until = parseEwbDateIST(validUntil);
+  if (!until) return "";
+  return until.getTime() < Date.now() ? "CAN" : "ACT";
+}
+
 export function toMastersIndia(data: any): any {
   data = data || {};
   const summary = data.summary || {};
@@ -53,7 +91,7 @@ export function toMastersIndia(data: any): any {
     ewbNo: ewbDigits ? parseInt(ewbDigits, 10) : 0,
     ewayBillDate: summary.eway_bill_date,
     validUpto: summary.valid_until,
-    status: "",
+    status: computeEwbStatus(summary.valid_until),
     fromPincode: pincode(partA.place_of_dispatch),
     toPincode: pincode(partA.place_of_delivery),
     userGstin: gen.gstin,
