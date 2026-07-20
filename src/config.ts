@@ -6,7 +6,7 @@
  */
 import "dotenv/config";
 
-// "openai" | "groq" | "openrouter" (cloud, fast) | "ollama" (local, keyless)
+// "openai" | "groq" | "openrouter" | "cerebras" (cloud, fast) | "ollama" (local, keyless)
 export const PROVIDER = (process.env.PROVIDER || "groq").toLowerCase();
 
 // --- Ollama (local, keyless) ---
@@ -32,6 +32,14 @@ export const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 export const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "qwen/qwen2.5-vl-72b-instruct:free";
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+// --- Cerebras (cloud, very fast, free tier) ---
+// TEXT-ONLY today — no vision/image_url support on Cerebras' API. Usable for
+// extractFromText (OCR path) only; extractFields (image upload) still needs
+// groq/openai/openrouter.
+export const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY || "";
+export const CEREBRAS_MODEL = process.env.CEREBRAS_MODEL || "llama-3.3-70b";
+export const CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions";
 
 export const UPLOAD_DIR = "uploads";
 export const OUTPUT_DIR = "outputs";

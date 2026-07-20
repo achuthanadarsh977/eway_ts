@@ -10,10 +10,15 @@ import {
   GROQ_API_KEY, GROQ_MODEL, GROQ_URL,
   OPENAI_API_KEY, OPENAI_MODEL, OPENAI_URL,
   OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL,
+  CEREBRAS_API_KEY, CEREBRAS_MODEL, CEREBRAS_URL,
 } from "./config";
 import { cleanupImage } from "./imageCleanup";
 
+// Vision-capable — used by extractFields (image upload).
 const CLOUD_PROVIDERS = ["groq", "openai", "openrouter"];
+// Cerebras has no image_url support today, so it's added only for the
+// text/OCR path (extractFromText), not the vision path above.
+const TEXT_PROVIDERS = [...CLOUD_PROVIDERS, "cerebras"];
 
 const ollama = new Ollama({ host: OLLAMA_HOST });
 
@@ -224,6 +229,8 @@ async function cloudChat(content: any): Promise<string> {
     url = OPENAI_URL; key = OPENAI_API_KEY; model = OPENAI_MODEL; name = "OPENAI";
   } else if (PROVIDER === "openrouter") {
     url = OPENROUTER_URL; key = OPENROUTER_API_KEY; model = OPENROUTER_MODEL; name = "OPENROUTER";
+  } else if (PROVIDER === "cerebras") {
+    url = CEREBRAS_URL; key = CEREBRAS_API_KEY; model = CEREBRAS_MODEL; name = "CEREBRAS";
   }
   if (!key) {
     throw new Error(`No ${name}_API_KEY. Put it in a .env file or set PROVIDER=ollama for local.`);
@@ -286,6 +293,12 @@ export async function extractFields(imageBase64: string, mime = "image/jpeg"): P
     cleanupInfo = { cleaned: false, reason: `cleanup step threw: ${err?.message || err}` };
   }
 
+  if (PROVIDER === "cerebras") {
+    throw new Error(
+      "Cerebras has no vision/image_url support — use extractFromText (OCR) with " +
+      "PROVIDER=cerebras, or set PROVIDER=groq/openai/openrouter for image extraction."
+    );
+  }
   if (CLOUD_PROVIDERS.includes(PROVIDER)) {
     const content = [
       { type: "text", text: IMAGE_PROMPT },
@@ -301,7 +314,7 @@ export async function extractFields(imageBase64: string, mime = "image/jpeg"): P
 }
 
 export async function extractFromText(rawText: string): Promise<any> {
-  if (CLOUD_PROVIDERS.includes(PROVIDER)) {
+  if (TEXT_PROVIDERS.includes(PROVIDER)) {
     return finish(parseJson(await cloudChat(TEXT_PROMPT + (rawText || ""))));
   }
   const content = await ollamaChat([
