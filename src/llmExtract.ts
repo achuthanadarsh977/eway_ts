@@ -240,6 +240,11 @@ async function cloudChat(content: any): Promise<string> {
     messages: [{ role: "user", content }],
     temperature: 0,
   };
+  // qwen/qwen3.6-27b (Groq's current vision model) defaults to "thinking mode",
+  // which interleaves reasoning tokens with the answer and trips Groq's strict
+  // json_object validator (400 json_validate_failed, empty failed_generation).
+  // Non-thinking mode gives a direct, validator-friendly JSON response.
+  if (PROVIDER === "groq") body.reasoning_effort = "none";
   // Not all OpenRouter free models accept response_format; the prompt + parseJson
   // already enforce JSON, so only request it on providers that reliably support it.
   if (PROVIDER !== "openrouter") body.response_format = { type: "json_object" };
