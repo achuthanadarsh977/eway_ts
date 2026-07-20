@@ -36,7 +36,7 @@ function vehicleNo(token: any): string {
 // regardless of the server's local timezone.
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-function parseEwbDateIST(s: any): Date | null {
+export function parseEwbDateIST(s: any): Date | null {
   if (!s) return null;
   const m = String(s)
     .trim()
