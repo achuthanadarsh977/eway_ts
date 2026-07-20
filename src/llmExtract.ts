@@ -13,7 +13,7 @@ import {
   CEREBRAS_API_KEY, CEREBRAS_MODEL, CEREBRAS_URL,
 } from "./config";
 import { cleanupImage } from "./imageCleanup";
-import { parseEwbDateIST } from "./mastersIndia";
+import { computeEwbStatus } from "./mastersIndia";
 
 // Vision-capable — used by extractFields (image upload).
 const CLOUD_PROVIDERS = ["groq", "openai", "openrouter"];
@@ -211,20 +211,14 @@ function validate(data: any): string[] {
   return warnings;
 }
 
-// The status printed on the source document is a snapshot from whenever the
-// EWB was generated/downloaded — it doesn't reflect today's date, so an old
-// document can still read "Active" long after it has actually expired.
-// Recompute it live from valid_until instead of trusting the OCR'd text.
-function liveEwbStatus(validUntil: any): "EWB (Active)" | "EWB (Expired)" | null {
-  const until = parseEwbDateIST(validUntil);
-  if (!until) return null;
-  return until.getTime() < Date.now() ? "EWB (Expired)" : "EWB (Active)";
-}
-
 function finish(data: any, cleanup?: { cleaned: boolean; reason: string }): any {
   if (!data.barcode_value) data.barcode_value = data.eway_bill_no || "";
   const normalized = normalize(data);
-  const liveStatus = liveEwbStatus(normalized.summary && normalized.summary.valid_until);
+  // The status printed on the source document is a snapshot from whenever the
+  // EWB was generated/downloaded — it doesn't reflect today's date, so an old
+  // document can still read "Active" long after it has actually expired.
+  // Recompute it live from valid_until instead of trusting the OCR'd text.
+  const liveStatus = computeEwbStatus(normalized.summary && normalized.summary.valid_until);
   if (liveStatus && normalized.eway_bill_status !== liveStatus) {
     normalized._eway_bill_status_extracted = normalized.eway_bill_status || null;
     normalized.eway_bill_status = liveStatus;

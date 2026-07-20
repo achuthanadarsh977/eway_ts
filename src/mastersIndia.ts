@@ -62,7 +62,7 @@ export function parseEwbDateIST(s: any): Date | null {
 // "ACT" if valid_until is still in the future (or now), "CAN" if it has
 // already passed. Empty string (not a guess) if valid_until is missing
 // or unparseable.
-function computeEwbStatus(validUntil: any): "ACT" | "CAN" | "" {
+export function computeEwbStatus(validUntil: any): "ACT" | "CAN" | "" {
   const until = parseEwbDateIST(validUntil);
   if (!until) return "";
   return until.getTime() < Date.now() ? "CAN" : "ACT";
